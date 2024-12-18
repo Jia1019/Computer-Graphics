@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phong Shading in Fragment Shader</title>
+  <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+  <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+  <script type="text/javascript" src="../angelCommon/MV.js"></script>
+  <style>
+    .canvas-container { text-align: center; }
+    .control-panel { margin-top: 10px; }
+    .slider { margin: 5px; }
+  </style>
+</head>
+<body>
+<h2>Phong Shading in Fragment Shader</h2>
+<div class="canvas-container">
+  <canvas id="gl-canvas" width="500" height="500"></canvas>
+  <div class="control-panel">
+    <button onclick="incrementSubdivision()">Increase Subdivision</button>
+    <button onclick="decrementSubdivision()">Decrease Subdivision</button>
+    <label>Diffuse (kd):</label>
+    <input type="range" id="kd-slider" class="slider" min="0" max="1" step="0.01" value="0.8">
+    <label>Specular (ks):</label>
+    <input type="range" id="ks-slider" class="slider" min="0" max="1" step="0.01" value="0.5">
+    <label>Shininess (s):</label>
+    <input type="range" id="shininess-slider" class="slider" min="1" max="100" step="1" value="20">
+  </div>
+</div>
+
+<script>
+  let canvas, gl, program;
+  let pointsArray = [], normalsArray = [];
+  let subdivisionLevel = 3, theta = 0.0;
+  let kd = 0.8, ks = 0.5, shininess = 20.0;
+
+  const va = vec4(0.0, 0.0, -1.0, 1);
+  const vb = vec4(0.0, 0.942809, 0.333333, 1);
+  const vc = vec4(-0.816497, -0.471405, 0.333333, 1);
+  const vd = vec4(0.816497, -0.471405, 0.333333, 1);
+
+  window.onload = function init() {
+    canvas = document.getElementById("gl-canvas");
+    gl = canvas.getContext("webgl");
+    if (!gl) alert("WebGL isn't available");
+
+    program = initShaders(gl, "vertex-shader", "fragment-shader");
+    gl.useProgram(program);
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    gl.enable(gl.DEPTH_TEST);
+
+    setupSliders();
+    renderSphere();
+    animate();
+  };
+
+  function setupSliders() {
+    document.getElementById("kd-slider").addEventListener("input", (e) => { kd = parseFloat(e.target.value); });
+    document.getElementById("ks-slider").addEventListener("input", (e) => { ks = parseFloat(e.target.value); });
+    document.getElementById("shininess-slider").addEventListener("input", (e) => { shininess = parseFloat(e.target.value); });
+  }
+
+  function animate() {
+    theta += 0.01;
+    renderSphere();
+    requestAnimationFrame(animate);
+  }
+
+  function triangle(a, b, c) {
+    const normal = normalize(cross(subtract(b, a), subtract(c, a)));
+    pointsArray.push(a, b, c);
+    normalsArray.push(normal, normal, normal);
+  }
+
+  function divideTriangle(a, b, c, count) {
+    if (count > 0) {
+      const ab = normalize(mix(a, b, 0.5), true);
+      const ac = normalize(mix(a, c, 0.5), true);
+      const bc = normalize(mix(b, c, 0.5), true);
+      divideTriangle(a, ab, ac, count - 1);
+      divideTriangle(ab, b, bc, count - 1);
+      divideTriangle(bc, c, ac, count - 1);
+      divideTriangle(ab, bc, ac, count - 1);
+    } else triangle(a, b, c);
+  }
+
+  function tetrahedron(a, b, c, d, n) {
+    pointsArray = []; normalsArray = [];
+    divideTriangle(a, b, c, n);
+    divideTriangle(d, c, b, n);
+    divideTriangle(a, d, b, n);
+    divideTriangle(a, c, d, n);
+  }
+
+  function renderSphere() {
+    tetrahedron(va, vb, vc, vd, subdivisionLevel);
+
+    const vBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(pointsArray), gl.STATIC_DRAW);
+    const vPosition = gl.getAttribLocation(program, "a_Position");
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+
+    const nBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, nBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(normalsArray), gl.STATIC_DRAW);
+    const vNormal = gl.getAttribLocation(program, "a_Normal");
+    gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vNormal);
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const eye = vec3(4.0 * Math.sin(theta), 0.0, 4.0 * Math.cos(theta));
+    const modelViewMatrix = lookAt(eye, vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0));
+    const projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 10);
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ModelViewMatrix"), false, flatten(modelViewMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ProjectionMatrix"), false, flatten(projectionMatrix));
+    gl.uniform1f(gl.getUniformLocation(program, "u_kd"), kd);
+    gl.uniform1f(gl.getUniformLocation(program, "u_ks"), ks);
+    gl.uniform1f(gl.getUniformLocation(program, "u_shininess"), shininess);
+
+    gl.drawArrays(gl.TRIANGLES, 0, pointsArray.length);
+  }
+
+  function incrementSubdivision() { subdivisionLevel++; }
+  function decrementSubdivision() { if (subdivisionLevel > 0) subdivisionLevel--; }
+</script>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 a_Position;
+  attribute vec3 a_Normal;
+  uniform mat4 u_ModelViewMatrix, u_ProjectionMatrix;
+  varying vec3 v_Normal, v_Position;
+  void main() {
+      v_Position = vec3(u_ModelViewMatrix * a_Position);
+      v_Normal = mat3(u_ModelViewMatrix) * a_Normal;
+      gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * a_Position;
+  }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  varying vec3 v_Normal, v_Position;
+  uniform float u_kd, u_ks, u_shininess;
+  void main() {
+      vec3 lightDir = normalize(vec3(0.0, 0.0, -1.0));
+      vec3 viewDir = normalize(-v_Position);
+      vec3 normal = normalize(v_Normal);
+
+      float diffuse = max(dot(normal, lightDir), 0.0);
+      vec3 reflectDir = reflect(-lightDir, normal);
+      float specular = pow(max(dot(reflectDir, viewDir), 0.0), u_shininess);
+
+      vec3 color = vec3(1.0, 0.5, 0.0) * (u_kd * diffuse + u_ks * specular);
+      gl_FragColor = vec4(color, 1.0);
+  }
+</script>
+</body>
+</html>

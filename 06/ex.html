@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBJ Loader with Phong Shading</title>
+    <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+    <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+    <script type="text/javascript" src="../angelCommon/MV.js"></script>
+    <style>
+        .canvas-container { text-align: center; }
+        .control-panel { margin-top: 10px; }
+    </style>
+</head>
+<body>
+<h2>Load and Render OBJ File with Phong Shading</h2>
+<div class="canvas-container">
+    <canvas id="gl-canvas" width="500" height="500"></canvas>
+</div>
+
+<script>
+    let canvas, gl, program;
+    let pointsArray = [], normalsArray = [];
+    let kd = 0.8, ks = 0.5, shininess = 20.0;
+
+    window.onload = function init() {
+        canvas = document.getElementById("gl-canvas");
+        gl = canvas.getContext("webgl");
+        if (!gl) alert("WebGL isn't available");
+
+        program = initShaders(gl, "vertex-shader", "fragment-shader");
+        gl.useProgram(program);
+
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clearColor(1.0, 1.0, 1.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.CULL_FACE);
+
+        loadOBJ("suzanne.obj", renderOBJModel);
+    };
+
+    // Function to load and parse OBJ files
+    function loadOBJ(url, callback) {
+        fetch(url)
+            .then(response => response.text())
+            .then(data => {
+                const vertices = [];
+                const normals = [];
+                const faces = [];
+
+                const lines = data.split("\n");
+                for (let line of lines) {
+                    line = line.trim();
+                    const parts = line.split(" ");
+                    if (parts[0] === "v") {
+                        vertices.push(vec3(
+                            parseFloat(parts[1]),
+                            parseFloat(parts[2]),
+                            parseFloat(parts[3])
+                        ));
+                    } else if (parts[0] === "vn") {
+                        normals.push(vec3(
+                            parseFloat(parts[1]),
+                            parseFloat(parts[2]),
+                            parseFloat(parts[3])
+                        ));
+                    } else if (parts[0] === "f") {
+                        for (let i = 1; i <= 3; i++) {
+                            const indices = parts[i].split("/");
+                            faces.push({
+                                vertex: vertices[parseInt(indices[0]) - 1],
+                                normal: normals[parseInt(indices[2]) - 1]
+                            });
+                        }
+                    }
+                }
+
+                const points = [], norms = [];
+                for (let face of faces) {
+                    points.push(vec4(face.vertex[0], face.vertex[1], face.vertex[2], 1.0));
+                    norms.push(face.normal);
+                }
+
+                callback(points, norms);
+            });
+    }
+
+    // Function to render OBJ data
+    function renderOBJModel(points, normals) {
+        const vBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(points), gl.STATIC_DRAW);
+        const vPosition = gl.getAttribLocation(program, "a_Position");
+        gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vPosition);
+
+        const nBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, nBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(normals), gl.STATIC_DRAW);
+        const vNormal = gl.getAttribLocation(program, "a_Normal");
+        gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vNormal);
+
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        const eye = vec3(0.0, 0.0, 5.0);
+        const modelViewMatrix = lookAt(eye, vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0));
+        const projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 10);
+
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ModelViewMatrix"), false, flatten(modelViewMatrix));
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ProjectionMatrix"), false, flatten(projectionMatrix));
+        gl.uniform1f(gl.getUniformLocation(program, "u_kd"), kd);
+        gl.uniform1f(gl.getUniformLocation(program, "u_ks"), ks);
+        gl.uniform1f(gl.getUniformLocation(program, "u_shininess"), shininess);
+
+        gl.drawArrays(gl.TRIANGLES, 0, points.length);
+    }
+</script>
+
+<!-- Vertex Shader -->
+<script id="vertex-shader" type="x-shader/x-vertex">
+    attribute vec4 a_Position;
+    attribute vec3 a_Normal;
+    uniform mat4 u_ModelViewMatrix, u_ProjectionMatrix;
+    varying vec3 v_Normal, v_Position;
+    void main() {
+        v_Position = vec3(u_ModelViewMatrix * a_Position);
+        v_Normal = mat3(u_ModelViewMatrix) * a_Normal;
+        gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * a_Position;
+    }
+</script>
+
+<!-- Fragment Shader -->
+<script id="fragment-shader" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec3 v_Normal, v_Position;
+    uniform float u_kd, u_ks, u_shininess;
+    void main() {
+        vec3 lightDir = normalize(vec3(0.0, 0.0, -1.0));
+        vec3 viewDir = normalize(-v_Position);
+        vec3 normal = normalize(v_Normal);
+
+        float diffuse = max(dot(normal, lightDir), 0.0);
+        vec3 reflectDir = reflect(-lightDir, normal);
+        float specular = pow(max(dot(reflectDir, viewDir), 0.0), u_shininess);
+
+        vec3 color = vec3(0.8, 0.5, 0.3) * (u_kd * diffuse + u_ks * specular);
+        gl_FragColor = vec4(color, 1.0);
+    }
+</script>
+</body>
+</html>

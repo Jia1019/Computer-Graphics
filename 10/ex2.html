@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teapot with Projection Shadows</title>
+  <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+  <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+  <script type="text/javascript" src="../angelCommon/MV.js"></script>
+  <script type="text/javascript" src="OBJParser.js"></script>
+  <style>
+    body { text-align: center; margin: 0; background-color: #e6e6e6; }
+    canvas { display: block; margin: auto; background-color: black; }
+    button { margin: 10px; }
+  </style>
+</head>
+<body>
+<h2>Teapot with Projection Shadows</h2>
+<canvas id="gl-canvas" width="800" height="600"></canvas>
+<button id="toggle-light">Toggle Light Animation</button>
+
+<script>
+  let canvas, gl, programTeapot, programShadow;
+  let teapotBuffers = {};
+  let teapotModel;
+  let time = 0;
+  let lightAnimation = true;
+
+  // Light and shadow setup
+  const lightCenter = vec3(0.0, 2.0, -2.0);
+  const lightRadius = 2.0;
+
+  // Load the teapot OBJ file
+  async function loadTeapot() {
+    const filePath = './teapot/teapot.obj'; // Local path to OBJ file
+    teapotModel = await readOBJFile(filePath, 1.0, false);
+    if (!teapotModel) {
+      console.error("Failed to load the OBJ file.");
+      return;
+    }
+    setupTeapotBuffers();
+  }
+
+  // Setup buffers for the teapot model
+  function setupTeapotBuffers() {
+    const { vertices, normals, indices } = teapotModel;
+
+    // Vertex buffer
+    teapotBuffers.vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffers.vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    // Normal buffer
+    teapotBuffers.normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffers.normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+
+    // Index buffer
+    teapotBuffers.indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, teapotBuffers.indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+  }
+
+  // Compute shadow projection matrix
+  function shadowProjectionMatrix(lightPos) {
+    const groundY = -1.0; // Ground plane at y = -1
+    const d = lightPos[1] - groundY;
+    return mat4(
+            1, 0, 0, 0,
+            -lightPos[0] / d, 0, -lightPos[2] / d, -1 / d,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+    );
+  }
+
+  // Render the scene
+  function render() {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Compute light position
+    const lightPos = vec3(
+            lightCenter[0] + lightRadius * Math.cos(time),
+            lightCenter[1],
+            lightCenter[2] + lightRadius * Math.sin(time)
+    );
+
+    if (lightAnimation) time += 0.01;
+
+    // Render shadow polygons
+    gl.useProgram(programShadow);
+    const shadowModelMatrix = mult(translate(0, -1, -3), scalem(0.25, 0.25, 0.25));
+    const shadowProjMatrix = mult(shadowProjectionMatrix(lightPos), shadowModelMatrix);
+    gl.uniformMatrix4fv(gl.getUniformLocation(programShadow, "u_ModelViewMatrix"), false, flatten(shadowProjMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(programShadow, "u_ProjectionMatrix"), false, flatten(mat4())); // Identity projection
+    drawTeapot();
+
+    // Render teapot with light shading
+    gl.useProgram(programTeapot);
+    const modelMatrix = mult(translate(0, Math.sin(time) * 0.5 - 1.0, -3), scalem(0.25, 0.25, 0.25));
+    const viewMatrix = lookAt(vec3(0, 0, 3), vec3(0, -1, -3), vec3(0, 1, 0));
+    const projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 100);
+    const modelViewMatrix = mult(viewMatrix, modelMatrix);
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(programTeapot, "u_ModelViewMatrix"), false, flatten(modelViewMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(programTeapot, "u_ProjectionMatrix"), false, flatten(projectionMatrix));
+    gl.uniform3fv(gl.getUniformLocation(programTeapot, "u_LightPosition"), flatten(lightPos));
+
+    drawTeapot();
+
+    requestAnimationFrame(render);
+  }
+
+  function drawTeapot() {
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffers.vertexBuffer);
+    const vPosition = gl.getAttribLocation(gl.getParameter(gl.CURRENT_PROGRAM), "a_Position");
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotBuffers.normalBuffer);
+    const vNormal = gl.getAttribLocation(gl.getParameter(gl.CURRENT_PROGRAM), "a_Normal");
+    gl.vertexAttribPointer(vNormal, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vNormal);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, teapotBuffers.indexBuffer);
+    gl.drawElements(gl.TRIANGLES, teapotModel.indices.length, gl.UNSIGNED_INT, 0);
+  }
+
+  // Initialize WebGL
+  window.onload = async function init() {
+    canvas = document.getElementById("gl-canvas");
+    gl = WebGLUtils.setupWebGL(canvas);
+    if (!gl) alert("WebGL isn't available");
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.enable(gl.DEPTH_TEST);
+
+    programTeapot = initShaders(gl, "teapot-vertex-shader", "teapot-fragment-shader");
+    programShadow = initShaders(gl, "shadow-vertex-shader", "shadow-fragment-shader");
+
+    await loadTeapot();
+
+    document.getElementById("toggle-light").onclick = () => lightAnimation = !lightAnimation;
+
+    render();
+  };
+</script>
+
+<script id="teapot-vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 a_Position;
+  attribute vec4 a_Normal;
+  uniform mat4 u_ModelViewMatrix;
+  uniform mat4 u_ProjectionMatrix;
+  varying vec4 v_Color;
+
+  void main() {
+      gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * a_Position;
+      v_Color = vec4(1.0, 0.5, 0.0, 1.0); // Orange teapot
+  }
+</script>
+
+<script id="teapot-fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  varying vec4 v_Color;
+
+  void main() {
+      gl_FragColor = v_Color;
+  }
+</script>
+
+<script id="shadow-vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 a_Position;
+  uniform mat4 u_ModelViewMatrix;
+  uniform mat4 u_ProjectionMatrix;
+
+  void main() {
+      gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * a_Position;
+  }
+</script>
+
+<script id="shadow-fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+
+  void main() {
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 0.5); // Semi-transparent black shadow
+  }
+</script>
+</body>
+</html>

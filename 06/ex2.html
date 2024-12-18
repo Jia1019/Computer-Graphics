@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Load OBJ with Indexed Face Set</title>
+  <script type="text/javascript" src="lib/webgl-utils.js"></script>
+  <script type="text/javascript" src="lib/initShaders.js"></script>
+  <script type="text/javascript" src="lib/MV.js"></script>
+  <script type="text/javascript" src="OBJParser.js"></script>
+  <style>
+    body { text-align: center; }
+    canvas { background-color: #ffffff; }
+  </style>
+</head>
+<body>
+<h2>Load and Display OBJ File</h2>
+<canvas id="gl-canvas" width="600" height="600"></canvas>
+
+<script>
+  let canvas, gl, program;
+  let vertexBuffer, indexBuffer;
+  let vertices = [], indices = [];
+  let model;
+
+  async function init() {
+    // 初始化 WebGL
+    canvas = document.getElementById("gl-canvas");
+    gl = canvas.getContext("webgl");
+    if (!gl) alert("WebGL isn't available");
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    gl.enable(gl.DEPTH_TEST);
+
+    // 加载和编译着色器
+    program = initShaders(gl, "vertex-shader", "fragment-shader");
+    gl.useProgram(program);
+
+    // 异步加载 OBJ 文件
+    model = await loadOBJFile("suzanne.obj");
+
+    // 提取顶点和索引数据
+    vertices = model.vertices;
+    indices = model.indices;
+
+    setupBuffers();
+    render();
+  }
+
+  // 异步加载 OBJ 文件
+  async function loadOBJFile(url) {
+    const response = await fetch(url);
+    const objText = await response.text();
+    const objParser = new OBJParser();
+    return objParser.parse(objText);
+  }
+
+  function setupBuffers() {
+    // 创建顶点缓冲区
+    vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+    const vPosition = gl.getAttribLocation(program, "a_Position");
+    gl.vertexAttribPointer(vPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+
+    // 创建索引缓冲区
+    indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+  }
+
+  function render() {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // 设置摄像机和投影矩阵
+    const eye = vec3(0.0, 0.0, 5.0);
+    const modelViewMatrix = lookAt(eye, vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0));
+    const projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 10);
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ModelViewMatrix"), false, flatten(modelViewMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ProjectionMatrix"), false, flatten(projectionMatrix));
+
+    // 绘制模型
+    gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+  }
+
+  window.onload = init;
+</script>
+
+<!-- Vertex Shader -->
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 a_Position;
+  uniform mat4 u_ModelViewMatrix, u_ProjectionMatrix;
+  void main() {
+      gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * a_Position;
+  }
+</script>
+
+<!-- Fragment Shader -->
+<script id="fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  void main() {
+      gl_FragColor = vec4(0.8, 0.5, 0.3, 1.0);
+  }
+</script>
+</body>
+</html>

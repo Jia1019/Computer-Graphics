@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recursive Sphere in Perspective View</title>
+  <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+  <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+  <script type="text/javascript" src="../angelCommon/MV.js"></script>
+  <style>
+    .canvas-container {
+      text-align: center;
+    }
+    .control-panel {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+<h2>Recursive Sphere in Perspective View</h2>
+<div class="canvas-container">
+  <canvas id="gl-canvas" width="500" height="500"></canvas>
+  <div class="control-panel">
+    <button onclick="incrementSubdivision()">Increase Subdivision</button>
+    <button onclick="decrementSubdivision()">Decrease Subdivision</button>
+  </div>
+</div>
+
+<script>
+  let canvas, gl, program;
+  let pointsArray = [];
+  let subdivisionLevel = 3;
+
+  const va = vec4(0.0, 0.0, -1.0, 1);
+  const vb = vec4(0.0, 0.942809, 0.333333, 1);
+  const vc = vec4(-0.816497, -0.471405, 0.333333, 1);
+  const vd = vec4(0.816497, -0.471405, 0.333333, 1);
+
+  window.onload = function init() {
+    canvas = document.getElementById("gl-canvas");
+    gl = canvas.getContext("webgl");
+    if (!gl) alert("WebGL isn't available");
+
+    program = initShaders(gl, "vertex-shader", "fragment-shader");
+    gl.useProgram(program);
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.enable(gl.DEPTH_TEST);
+
+    renderSphere();
+  };
+
+  function triangle(a, b, c) {
+    pointsArray.push(a, b, c);
+  }
+
+  function divideTriangle(a, b, c, count) {
+    if (count > 0) {
+      const ab = normalize(mix(a, b, 0.5), true);
+      const ac = normalize(mix(a, c, 0.5), true);
+      const bc = normalize(mix(b, c, 0.5), true);
+
+      divideTriangle(a, ab, ac, count - 1);
+      divideTriangle(ab, b, bc, count - 1);
+      divideTriangle(bc, c, ac, count - 1);
+      divideTriangle(ab, bc, ac, count - 1);
+    } else {
+      triangle(a, b, c);
+    }
+  }
+
+  function tetrahedron(a, b, c, d, n) {
+    pointsArray = [];
+    divideTriangle(a, b, c, n);
+    divideTriangle(d, c, b, n);
+    divideTriangle(a, d, b, n);
+    divideTriangle(a, c, d, n);
+  }
+
+  function renderSphere() {
+    tetrahedron(va, vb, vc, vd, subdivisionLevel);
+
+    const bufferId = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufferId);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(pointsArray), gl.STATIC_DRAW);
+
+    const vPosition = gl.getAttribLocation(program, "a_Position");
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 10);
+    const modelViewMatrix = lookAt(vec3(0.0, 0.0, 4.0), vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0));
+
+    const modelViewLoc = gl.getUniformLocation(program, "u_ModelViewMatrix");
+    const projectionLoc = gl.getUniformLocation(program, "u_ProjectionMatrix");
+
+    gl.uniformMatrix4fv(modelViewLoc, false, flatten(modelViewMatrix));
+    gl.uniformMatrix4fv(projectionLoc, false, flatten(projectionMatrix));
+
+    gl.drawArrays(gl.TRIANGLES, 0, pointsArray.length);
+  }
+
+  function incrementSubdivision() {
+    subdivisionLevel++;
+    renderSphere();
+  }
+
+  function decrementSubdivision() {
+    if (subdivisionLevel > 0) {
+      subdivisionLevel--;
+      renderSphere();
+    }
+  }
+</script>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 a_Position;
+  uniform mat4 u_ModelViewMatrix;
+  uniform mat4 u_ProjectionMatrix;
+  void main() {
+      gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * a_Position;
+  }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  void main() {
+      gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0);
+  }
+</script>
+</body>
+</html>
+

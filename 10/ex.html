@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jumping Teapot on Textured Ground</title>
+    <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+    <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+    <script type="text/javascript" src="../angelCommon/MV.js"></script>
+    <script type="text/javascript" src="OBJParser.js"></script>
+    <style>
+        body { text-align: center; margin: 0; background-color: #e6e6e6; }
+        canvas { display: block; margin: auto; background-color: black; }
+        button { margin: 10px; }
+    </style>
+</head>
+<body>
+<h2>Jumping Teapot on Textured Ground</h2>
+<canvas id="gl-canvas" width="800" height="600"></canvas>
+<button id="toggle-motion">Toggle Teapot Motion</button>
+
+<script>
+    let canvas, gl, programGround, programTeapot;
+    let groundBuffer, teapotData;
+    let texture;
+    let jumping = true;
+    let time = 0.0;
+
+    // Load the OBJ file
+    async function loadTeapot() {
+        const filePath = './teapot/teapot.obj'; // Local path to OBJ file
+        const objData = await readOBJFile(filePath, 1.0, false); // scale = 1.0, reverse = false
+        if (!objData) {
+            console.error("Failed to load the OBJ file.");
+            return;
+        }
+        return objData;
+    }
+
+    // Initialize WebGL
+    window.onload = async function init() {
+        canvas = document.getElementById("gl-canvas");
+        gl = WebGLUtils.setupWebGL(canvas);
+        if (!gl) alert("WebGL isn't available");
+
+        // Load shaders for ground and teapot
+        programGround = initShaders(gl, "ground-vertex-shader", "ground-fragment-shader");
+        programTeapot = initShaders(gl, "teapot-vertex-shader", "teapot-fragment-shader");
+
+        gl.enable(gl.DEPTH_TEST);
+
+        // Setup ground
+        setupGround();
+        setupTexture();
+
+        // Load teapot
+        teapotData = await loadTeapot();
+
+        // Add toggle button listener
+        document.getElementById("toggle-motion").onclick = () => jumping = !jumping;
+
+        render();
+    };
+
+    function setupGround() {
+        const vertices = [
+            vec4(-2, -1, -1, 1), vec4(2, -1, -1, 1),
+            vec4(2, -1, -5, 1), vec4(-2, -1, -5, 1)
+        ];
+
+        groundBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, groundBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(vertices), gl.STATIC_DRAW);
+    }
+
+    function setupTexture() {
+        texture = gl.createTexture();
+        const image = new Image();
+        image.onload = function () {
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        };
+        image.src = "xamp23.png";
+    }
+
+    function render() {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // Ground Shader
+        gl.useProgram(programGround);
+        gl.bindBuffer(gl.ARRAY_BUFFER, groundBuffer);
+        const vPosition = gl.getAttribLocation(programGround, "a_Position");
+        gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vPosition);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(gl.getUniformLocation(programGround, "u_Texture"), 0);
+        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+
+        // Teapot Shader
+        gl.useProgram(programTeapot);
+
+        // Animate the teapot jumping
+        if (jumping) time += 0.05;
+        const jumpHeight = Math.sin(time) * 0.75 - 1.0;
+
+        const modelMatrix = mult(translate(0, jumpHeight, -3), scalem(0.25, 0.25, 0.25));
+        gl.uniformMatrix4fv(gl.getUniformLocation(programTeapot, "u_ModelMatrix"), false, flatten(modelMatrix));
+
+        drawTeapot();
+
+        requestAnimationFrame(render);
+    }
+
+    function drawTeapot() {
+        const vPosition = gl.getAttribLocation(programTeapot, "a_Position");
+        const vertices = teapotData.vertices;
+
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(vertices), gl.STATIC_DRAW);
+
+        gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vPosition);
+
+        gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 4);
+    }
+</script>
+
+<script id="ground-vertex-shader" type="x-shader/x-vertex">
+    attribute vec4 a_Position;
+    varying vec2 v_TexCoord;
+    void main() {
+      gl_Position = a_Position;
+      v_TexCoord = (a_Position.xy + 1.0) / 2.0;
+    }
+</script>
+
+<script id="ground-fragment-shader" type="x-shader/x-fragment">
+    precision mediump float;
+    uniform sampler2D u_Texture;
+    varying vec2 v_TexCoord;
+    void main() {
+      gl_FragColor = texture2D(u_Texture, v_TexCoord);
+    }
+</script>
+
+<script id="teapot-vertex-shader" type="x-shader/x-vertex">
+    attribute vec4 a_Position;
+    uniform mat4 u_ModelMatrix;
+    void main() {
+      gl_Position = u_ModelMatrix * a_Position;
+    }
+</script>
+
+<script id="teapot-fragment-shader" type="x-shader/x-fragment">
+    precision mediump float;
+    void main() {
+      gl_FragColor = vec4(1.0, 0.5, 0.0, 1.0); // Orange teapot
+    }
+</script>
+</body>
+</html>

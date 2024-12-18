@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Drawing Modes</title>
+    <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+    <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+    <script type="text/javascript" src="../angelCommon/MV.js"></script>
+</head>
+<body>
+<h2>WebGL Drawing Application</h2>
+<canvas id="gl-canvas" width="512" height="512" style="border:1px solid black"></canvas>
+<br>
+<button id="clearButton">Clear Canvas</button>
+<button id="pointMode">Point Mode</button>
+<button id="triangleMode">Triangle Mode</button>
+<button id="circleMode">Circle Mode</button>
+<br>
+<label>Clear Color:</label>
+<select id="clearColorMenu">
+    <option value="0">Black</option>
+    <option value="1">Red</option>
+    <option value="2">Green</option>
+    <option value="3">Blue</option>
+</select>
+<label>Point Color:</label>
+<select id="pointColorMenu">
+    <option value="0">Black</option>
+    <option value="1">Red</option>
+    <option value="2">Green</option>
+    <option value="3">Blue</option>
+</select>
+<script>
+    let canvas, gl, program;
+    let mode = 'point';
+    let points = [];
+    let colors = [];
+    let clearColor = [0.0, 0.0, 0.0, 1.0];
+    let pointColor = [0.0, 0.0, 0.0, 1.0];
+    let circleCenter = null;
+
+    window.onload = function init() {
+        canvas = document.getElementById("gl-canvas");
+        gl = canvas.getContext("webgl");
+        if (!gl) {
+            alert("WebGL isn't available");
+        }
+
+        program = initShaders(gl, "vertex-shader", "fragment-shader");
+        gl.useProgram(program);
+
+        // Set up listeners
+        document.getElementById("clearButton").onclick = clearCanvas;
+        document.getElementById("pointMode").onclick = () => mode = 'point';
+        document.getElementById("triangleMode").onclick = () => mode = 'triangle';
+        document.getElementById("circleMode").onclick = () => mode = 'circle';
+        document.getElementById("clearColorMenu").onchange = setClearColor;
+        document.getElementById("pointColorMenu").onchange = setPointColor;
+        canvas.addEventListener("click", onCanvasClick);
+
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+
+    function clearCanvas() {
+        points = [];
+        colors = [];
+        gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        circleCenter = null;
+    }
+
+    function setClearColor(event) {
+        const index = event.target.value;
+        clearColor = getColor(index);
+    }
+
+    function setPointColor(event) {
+        const index = event.target.value;
+        pointColor = getColor(index);
+    }
+
+    function getColor(index) {
+        switch (index) {
+            case "1": return [1.0, 0.0, 0.0, 1.0];
+            case "2": return [0.0, 1.0, 0.0, 1.0];
+            case "3": return [0.0, 0.0, 1.0, 1.0];
+            default: return [0.0, 0.0, 0.0, 1.0];
+        }
+    }
+
+    function onCanvasClick(event) {
+        const rect = canvas.getBoundingClientRect();
+        const x = 2 * (event.clientX - rect.left) / canvas.width - 1;
+        const y = 2 * (canvas.height - (event.clientY - rect.top)) / canvas.height - 1;
+
+        if (mode === 'point') {
+            addPoint([x, y]);
+        } else if (mode === 'triangle') {
+            addTriangle([x, y]);
+        } else if (mode === 'circle') {
+            addCircle([x, y]);
+        }
+    }
+
+    function addPoint(position) {
+        points.push(position);
+        colors.push(pointColor);
+        render();
+    }
+
+    function addTriangle(position) {
+        points.push(position);
+        colors.push(pointColor);
+        if (points.length % 3 === 0) render();
+    }
+
+    function addCircle(position) {
+        if (!circleCenter) {
+            circleCenter = position;
+        } else {
+            const radius = Math.sqrt(Math.pow(position[0] - circleCenter[0], 2) + Math.pow(position[1] - circleCenter[1], 2));
+            const n = 30;
+            for (let i = 0; i <= n; i++) {
+                const angle = (2 * Math.PI * i) / n;
+                const x = circleCenter[0] + radius * Math.cos(angle);
+                const y = circleCenter[1] + radius * Math.sin(angle);
+                points.push([x, y]);
+                colors.push(pointColor);
+            }
+            circleCenter = null;
+            render();
+        }
+    }
+
+    function render() {
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        const vBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(points), gl.STATIC_DRAW);
+
+        const vPosition = gl.getAttribLocation(program, "a_Position");
+        gl.vertexAttribPointer(vPosition, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vPosition);
+
+        const cBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, cBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, flatten(colors), gl.STATIC_DRAW);
+
+        const vColor = gl.getAttribLocation(program, "a_Color");
+        gl.vertexAttribPointer(vColor, 4, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vColor);
+
+        gl.drawArrays(gl.POINTS, 0, points.length);
+    }
+</script>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+    attribute vec4 a_Position;
+    attribute vec4 a_Color;
+    varying vec4 v_Color;
+    void main() {
+        gl_Position = a_Position;
+        gl_PointSize = 10.0;
+        v_Color = a_Color;
+    }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec4 v_Color;
+    void main() {
+        gl_FragColor = v_Color;
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bumpy Mirror Ball with Background</title>
+  <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+  <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+  <script type="text/javascript" src="../angelCommon/MV.js"></script>
+  <style>
+    body { text-align: center; margin: 0; background-color: #e6e6e6; }
+    canvas { background-color: black; display: block; margin: auto; }
+  </style>
+</head>
+<body>
+<h2>Bumpy Mirror Ball with Background</h2>
+<canvas id="gl-canvas" width="600" height="600"></canvas>
+
+<script>
+  let canvas, gl, program;
+  let sphereBuffer, backgroundBuffer, normalMapTexture, cubeMapTexture;
+  let pointsArray = [];
+  let g_tex_ready = 0;
+
+  let cubeMapTextures = [
+    'textures/cm_left.png', 'textures/cm_right.png',
+    'textures/cm_top.png', 'textures/cm_bottom.png',
+    'textures/cm_back.png', 'textures/cm_front.png'
+  ];
+
+  window.onload = function init() {
+    canvas = document.getElementById("gl-canvas");
+    gl = WebGLUtils.setupWebGL(canvas);
+    if (!gl) alert("WebGL isn't available");
+
+    program = initShaders(gl, "vertex-shader", "fragment-shader");
+    gl.useProgram(program);
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.enable(gl.DEPTH_TEST);
+
+    setupBackgroundQuad();
+    setupSphere();
+    initCubeMapTexture();
+    initNormalMapTexture();
+    render();
+  };
+
+  // Background quad
+  function setupBackgroundQuad() {
+    const quadVertices = [
+      vec4(-1, -1, 0.999, 1), vec4(1, -1, 0.999, 1),
+      vec4(1, 1, 0.999, 1), vec4(-1, 1, 0.999, 1)
+    ];
+
+    backgroundBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, backgroundBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(quadVertices), gl.STATIC_DRAW);
+  }
+
+  // Sphere setup
+  function setupSphere() {
+    const va = vec4(0.0, 0.0, -1.0, 1);
+    const vb = vec4(0.0, 0.942809, 0.333333, 1);
+    const vc = vec4(-0.816497, -0.471405, 0.333333, 1);
+    const vd = vec4(0.816497, -0.471405, 0.333333, 1);
+
+    divideTriangle(va, vb, vc, 5);
+    divideTriangle(vd, vc, vb, 5);
+    divideTriangle(va, vd, vb, 5);
+    divideTriangle(va, vc, vd, 5);
+
+    sphereBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphereBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(pointsArray), gl.STATIC_DRAW);
+  }
+
+  function triangle(a, b, c) {
+    pointsArray.push(a, b, c);
+  }
+
+  function divideTriangle(a, b, c, count) {
+    if (count > 0) {
+      const ab = normalize(mix(a, b, 0.5), true);
+      const ac = normalize(mix(a, c, 0.5), true);
+      const bc = normalize(mix(b, c, 0.5), true);
+      divideTriangle(a, ab, ac, count - 1);
+      divideTriangle(ab, b, bc, count - 1);
+      divideTriangle(bc, c, ac, count - 1);
+      divideTriangle(ab, bc, ac, count - 1);
+    } else {
+      triangle(a, b, c);
+    }
+  }
+
+  function initCubeMapTexture() {
+    cubeMapTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubeMapTexture);
+
+    for (let i = 0; i < 6; ++i) {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.textarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + i;
+
+      image.onload = function () {
+        gl.texImage2D(image.textarget, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        g_tex_ready++;
+        if (g_tex_ready === 6) gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+      };
+      image.src = cubeMapTextures[i];
+    }
+
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  }
+
+  function initNormalMapTexture() {
+    normalMapTexture = gl.createTexture();
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = function () {
+      gl.bindTexture(gl.TEXTURE_2D, normalMapTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    };
+    image.src = 'textures/normalmap.png';
+  }
+
+  function render() {
+    if (g_tex_ready < 6) {
+      requestAnimationFrame(render);
+      return;
+    }
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const eye = vec3(0.0, 0.0, 3.0);
+    const modelViewMatrix = lookAt(eye, vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0));
+    const projectionMatrix = perspective(45, canvas.width / canvas.height, 0.1, 10);
+
+    gl.uniform3fv(gl.getUniformLocation(program, "u_EyePosition"), flatten(eye));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ModelViewMatrix"), false, flatten(modelViewMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ProjectionMatrix"), false, flatten(projectionMatrix));
+
+    // Render background
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubeMapTexture);
+    gl.uniform1i(gl.getUniformLocation(program, "u_CubeMap"), 0);
+    gl.uniform1i(gl.getUniformLocation(program, "u_Reflective"), 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, backgroundBuffer);
+    const vPosition = gl.getAttribLocation(program, "a_Position");
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+    gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+
+    // Render sphere
+    gl.uniform1i(gl.getUniformLocation(program, "u_Reflective"), 1);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, normalMapTexture);
+    gl.uniform1i(gl.getUniformLocation(program, "u_NormalMap"), 1);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphereBuffer);
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+    gl.drawArrays(gl.TRIANGLES, 0, pointsArray.length);
+
+    requestAnimationFrame(render);
+  }
+</script>
+
+<!-- Vertex Shader -->
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 a_Position;
+  varying vec3 v_Position;
+  void main() {
+    v_Position = a_Position.xyz;
+    gl_Position = a_Position;
+  }
+</script>
+
+<!-- Fragment Shader -->
+<script id="fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  uniform samplerCube u_CubeMap;
+  uniform sampler2D u_NormalMap;
+  uniform vec3 u_EyePosition;
+  uniform int u_Reflective;
+  varying vec3 v_Position;
+
+  vec3 rotate_to_normal(vec3 n, vec3 v) {
+    float sgn_nz = sign(n.z + 1.0e-16);
+    float a = -1.0 / (1.0 + abs(n.z));
+    float b = n.x * n.y * a;
+    return vec3(1.0 + n.x * n.x * a, b, -sgn_nz * n.x) * v.x
+         + vec3(sgn_nz * b, sgn_nz * (1.0 + n.y * n.y * a), -n.y) * v.y
+         + n * v.z;
+  }
+
+  void main() {
+    vec3 normal = normalize(v_Position);
+    if (u_Reflective == 1) {
+      vec2 uv = (normal.xy + 1.0) * 0.5;
+      vec3 tangentNormal = texture2D(u_NormalMap, uv).rgb * 2.0 - 1.0;
+      normal = rotate_to_normal(normal, tangentNormal);
+    }
+    vec3 viewDir = normalize(u_EyePosition - v_Position);
+    vec3 reflection = reflect(-viewDir, normal);
+    gl_FragColor = textureCube(u_CubeMap, reflection);
+  }
+</script>
+</body>
+</html>
+

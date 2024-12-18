@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGL Workshop</title>
+    <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+    <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+    <script type="text/javascript" src="../angelCommon/MV.js"></script>
+    <style>
+        .container {
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+        }
+        .part {
+            text-align: center;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="part">
+        <h3>Part 1: Basic Setup</h3>
+        <canvas id="gl-canvas-1" width="200" height="200">
+            Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+    </div>
+    <div class="part">
+        <h3>Part 2: Three Points</h3>
+        <canvas id="gl-canvas-2" width="200" height="200">
+            Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+    </div>
+    <div class="part">
+        <h3>Part 3: Colored Triangle</h3>
+        <canvas id="gl-canvas-3" width="200" height="200">
+            Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+    </div>
+    <div class="part">
+        <h3>Part 4: Rotating Square</h3>
+        <canvas id="gl-canvas-4" width="200" height="200">
+            Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+    </div>
+    <div class="part">
+        <h3>Part 5: Bouncing Circle</h3>
+        <canvas id="gl-canvas-5" width="200" height="200">
+            Oops ... your browser doesn't support the HTML5 canvas element
+        </canvas>
+    </div>
+</div>
+
+<!-- Vertex Shader Programs -->
+<script id="vertex-shader-2" type="x-shader/x-vertex">
+    attribute vec4 vPosition;
+    void main() {
+        gl_Position = vPosition;
+        gl_PointSize = 20.0;
+    }
+</script>
+
+<script id="vertex-shader-3" type="x-shader/x-vertex">
+    attribute vec4 vPosition;
+    attribute vec4 vColor;
+    varying vec4 fColor;
+    void main() {
+        gl_Position = vPosition;
+        fColor = vColor;
+    }
+</script>
+
+<script id="vertex-shader-4" type="x-shader/x-vertex">
+    attribute vec4 vPosition;
+    uniform float theta;
+    void main() {
+        float s = sin(theta);
+        float c = cos(theta);
+        gl_Position.x = vPosition.x * c - vPosition.y * s;
+        gl_Position.y = vPosition.x * s + vPosition.y * c;
+        gl_Position.z = 0.0;
+        gl_Position.w = 1.0;
+    }
+</script>
+
+<script id="vertex-shader-5" type="x-shader/x-vertex">
+    attribute vec4 vPosition;
+    uniform float yOffset;
+    void main() {
+        gl_Position = vPosition;
+        gl_Position.y += yOffset;
+    }
+</script>
+
+<!-- Fragment Shader Programs -->
+<script id="fragment-shader-2" type="x-shader/x-fragment">
+    precision mediump float;
+    void main() {
+        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    }
+</script>
+
+<script id="fragment-shader-3" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec4 fColor;
+    void main() {
+        gl_FragColor = fColor;
+    }
+</script>
+
+<script id="fragment-shader-4" type="x-shader/x-fragment">
+    precision mediump float;
+    void main() {
+        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    }
+</script>
+
+<script id="fragment-shader-5" type="x-shader/x-fragment">
+    precision mediump float;
+    void main() {
+        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+    }
+</script>
+
+<script type="text/javascript">
+    "use strict";
+
+    window.onload = function init() {
+        // Part 1: Basic Setup
+        var canvas1 = document.getElementById("gl-canvas-1");
+        var gl1 = WebGLUtils.setupWebGL(canvas1);
+        if (!gl1) { alert("WebGL isn't available"); return; }
+        gl1.viewport(0, 0, canvas1.width, canvas1.height);
+        gl1.clearColor(0.3921, 0.5843, 0.9294, 1.0);
+        gl1.clear(gl1.COLOR_BUFFER_BIT);
+
+        // Part 2: Three Points
+        var canvas2 = document.getElementById("gl-canvas-2");
+        var gl2 = WebGLUtils.setupWebGL(canvas2);
+        if (!gl2) return;
+        gl2.viewport(0, 0, canvas2.width, canvas2.height);
+
+        var program2 = initShaders(gl2, "vertex-shader-2", "fragment-shader-2");
+        gl2.useProgram(program2);
+
+        var vertices2 = [
+            vec2(0.0, 0.5),
+            vec2(-0.5, -0.5),
+            vec2(0.5, -0.5)
+        ];
+
+        var bufferId2 = gl2.createBuffer();
+        gl2.bindBuffer(gl2.ARRAY_BUFFER, bufferId2);
+        gl2.bufferData(gl2.ARRAY_BUFFER, flatten(vertices2), gl2.STATIC_DRAW);
+
+        var vPosition2 = gl2.getAttribLocation(program2, "vPosition");
+        gl2.vertexAttribPointer(vPosition2, 2, gl2.FLOAT, false, 0, 0);
+        gl2.enableVertexAttribArray(vPosition2);
+
+        gl2.clear(gl2.COLOR_BUFFER_BIT);
+        gl2.drawArrays(gl2.POINTS, 0, 3);
+
+        // Part 3: Colored Triangle
+        var canvas3 = document.getElementById("gl-canvas-3");
+        var gl3 = WebGLUtils.setupWebGL(canvas3);
+        if (!gl3) return;
+        gl3.viewport(0, 0, canvas3.width, canvas3.height);
+
+        var program3 = initShaders(gl3, "vertex-shader-3", "fragment-shader-3");
+        gl3.useProgram(program3);
+
+        var vertices3 = [
+            vec2(0.0, 0.5),
+            vec2(-0.5, -0.5),
+            vec2(0.5, -0.5)
+        ];
+
+        var colors3 = [
+            vec4(1.0, 0.0, 0.0, 1.0),
+            vec4(0.0, 1.0, 0.0, 1.0),
+            vec4(0.0, 0.0, 1.0, 1.0)
+        ];
+
+        var bufferId3 = gl3.createBuffer();
+        gl3.bindBuffer(gl3.ARRAY_BUFFER, bufferId3);
+        gl3.bufferData(gl3.ARRAY_BUFFER, flatten(vertices3), gl3.STATIC_DRAW);
+
+        var vPosition3 = gl3.getAttribLocation(program3, "vPosition");
+        gl3.vertexAttribPointer(vPosition3, 2, gl3.FLOAT, false, 0, 0);
+        gl3.enableVertexAttribArray(vPosition3);
+
+        var cBufferId3 = gl3.createBuffer();
+        gl3.bindBuffer(gl3.ARRAY_BUFFER, cBufferId3);
+        gl3.bufferData(gl3.ARRAY_BUFFER, flatten(colors3), gl3.STATIC_DRAW);
+
+        var vColor3 = gl3.getAttribLocation(program3, "vColor");
+        gl3.vertexAttribPointer(vColor3, 4, gl3.FLOAT, false, 0, 0);
+        gl3.enableVertexAttribArray(vColor3);
+
+        gl3.clear(gl3.COLOR_BUFFER_BIT);
+        gl3.drawArrays(gl3.TRIANGLES, 0, 3);
+
+        // Part 4: Rotating Square
+        var canvas4 = document.getElementById("gl-canvas-4");
+        var gl4 = WebGLUtils.setupWebGL(canvas4);
+        if (!gl4) return;
+        gl4.viewport(0, 0, canvas4.width, canvas4.height);
+
+        var program4 = initShaders(gl4, "vertex-shader-4", "fragment-shader-4");
+        gl4.useProgram(program4);
+
+        var vertices4 = [
+            vec2(0.5, 0.0),
+            vec2(0.0, 0.5),
+            vec2(-0.5, 0.0),
+            vec2(0.0, -0.5)
+        ];
+
+        var bufferId4 = gl4.createBuffer();
+        gl4.bindBuffer(gl4.ARRAY_BUFFER, bufferId4);
+        gl4.bufferData(gl4.ARRAY_BUFFER, flatten(vertices4), gl4.STATIC_DRAW);
+
+        var vPosition4 = gl4.getAttribLocation(program4, "vPosition");
+        gl4.vertexAttribPointer(vPosition4, 2, gl4.FLOAT, false, 0, 0);
+        gl4.enableVertexAttribArray(vPosition4);
+
+        var thetaLoc4 = gl4.getUniformLocation(program4, "theta");
+        var theta4 = 0.0;
+
+        function render4() {
+            gl4.clear(gl4.COLOR_BUFFER_BIT);
+            theta4 += 0.02;
+            gl4.uniform1f(thetaLoc4, theta4);
+            gl4.drawArrays(gl4.TRIANGLE_FAN, 0, 4);
+            requestAnimationFrame(render4);
+        }
+        render4();
+
+        // Part 5: Bouncing Circle
+        var canvas5 = document.getElementById("gl-canvas-5");
+        var gl5 = WebGLUtils.setupWebGL(canvas5);
+        if (!gl5) return;
+        gl5.viewport(0, 0, canvas5.width, canvas5.height);
+
+        var program5 = initShaders(gl5, "vertex-shader-5", "fragment-shader-5");
+        gl5.useProgram(program5);
+
+        var vertices5 = [];
+        var numPoints = 40;
+        var radius = 0.4;
+        vertices5.push(vec2(0.0, 0.0));  // Center point
+        for (var i = 0; i <= numPoints; i++) {
+            var angle = 2 * Math.PI * i / numPoints;
+            vertices5.push(vec2(radius * Math.cos(angle), radius * Math.sin(angle)));
+        }
+
+        var bufferId5 = gl5.createBuffer();
+        gl5.bindBuffer(gl5.ARRAY_BUFFER, bufferId5);
+        gl5.bufferData(gl5.ARRAY_BUFFER, flatten(vertices5), gl5.STATIC_DRAW);
+
+        var vPosition5 = gl5.getAttribLocation(program5, "vPosition");
+        gl5.vertexAttribPointer(vPosition5, 2, gl5.FLOAT, false, 0, 0);
+        gl5.enableVertexAttribArray(vPosition5);
+
+        var yOffsetLoc5 = gl5.getUniformLocation(program5, "yOffset");
+        var yOffset5 = 0.0;
+        var ySpeed5 = 0.02;
+
+        function render5() {
+            gl5.clear(gl5.COLOR_BUFFER_BIT);
+
+            yOffset5 += ySpeed5;
+            if (Math.abs(yOffset5) > 0.5) {
+                ySpeed5 *= -1;
+            }
+
+            gl5.uniform1f(yOffsetLoc5, yOffset5);
+            gl5.drawArrays(gl5.TRIANGLE_FAN, 0, vertices5.length);
+            requestAnimationFrame(render5);
+        }
+        render5();
+    };
+</script>
+</body>
+</html>
+
+
+

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Texture Wrapping and Filtering Modes</title>
+  <script type="text/javascript" src="../angelCommon/webgl-utils.js"></script>
+  <script type="text/javascript" src="../angelCommon/initShaders.js"></script>
+  <script type="text/javascript" src="../angelCommon/MV.js"></script>
+  <style>
+    body { text-align: center; margin-top: 20px; }
+    canvas { background-color: #ffffff; }
+    select, button { margin: 5px; padding: 5px; }
+  </style>
+</head>
+<body>
+<h2>Texture Wrapping and Filtering Modes</h2>
+<canvas id="gl-canvas" width="600" height="400"></canvas>
+<div>
+  <label>Wrap Mode:</label>
+  <select id="wrapMode">
+    <option value="REPEAT">Repeat</option>
+    <option value="CLAMP_TO_EDGE">Clamp to Edge</option>
+  </select>
+  <label>Filter Mode:</label>
+  <select id="filterMode">
+    <option value="NEAREST">Nearest</option>
+    <option value="LINEAR">Linear</option>
+    <option value="NEAREST_MIPMAP_NEAREST">Nearest Mipmap Nearest</option>
+    <option value="LINEAR_MIPMAP_NEAREST">Linear Mipmap Nearest</option>
+    <option value="NEAREST_MIPMAP_LINEAR">Nearest Mipmap Linear</option>
+    <option value="LINEAR_MIPMAP_LINEAR">Linear Mipmap Linear</option>
+  </select>
+  <button onclick="updateTexture()">Apply Settings</button>
+</div>
+
+<script>
+  let canvas, gl, program;
+  let vertices, texCoords, texture;
+  const texSize = 64;
+
+  window.onload = function init() {
+    canvas = document.getElementById("gl-canvas");
+    gl = WebGLUtils.setupWebGL(canvas);
+    if (!gl) alert("WebGL isn't available");
+
+    // Vertex and texture coordinates
+    vertices = [
+      vec3(-4, -1, -1), vec3(4, -1, -1),
+      vec3(4, -1, -21), vec3(-4, -1, -21)
+    ];
+    texCoords = [
+      vec2(-1.5, 0.0), vec2(2.5, 0.0),
+      vec2(2.5, 10.0), vec2(-1.5, 10.0)
+    ];
+
+    program = initShaders(gl, "vertex-shader", "fragment-shader");
+    gl.useProgram(program);
+
+    setupBuffers();
+    createCheckerboardTexture();
+
+    gl.clearColor(0.0, 0.0, 1.0, 1.0); // Blue background
+    gl.enable(gl.DEPTH_TEST);
+
+    render();
+  };
+
+  function setupBuffers() {
+    // Vertex buffer
+    const vBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(vertices), gl.STATIC_DRAW);
+
+    const vPosition = gl.getAttribLocation(program, "a_Position");
+    gl.vertexAttribPointer(vPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
+
+    // Texture buffer
+    const tBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, tBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(texCoords), gl.STATIC_DRAW);
+
+    const vTexCoord = gl.getAttribLocation(program, "a_TexCoord");
+    gl.vertexAttribPointer(vTexCoord, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vTexCoord);
+  }
+
+  function createCheckerboardTexture() {
+    const image = new Uint8Array(4 * texSize * texSize);
+    for (let i = 0; i < texSize; ++i) {
+      for (let j = 0; j < texSize; ++j) {
+        const c = (Math.floor(i / 8) % 2 === Math.floor(j / 8) % 2) ? 255 : 0;
+        const idx = 4 * (i * texSize + j);
+        image[idx] = image[idx + 1] = image[idx + 2] = c;
+        image[idx + 3] = 255; // Alpha
+      }
+    }
+
+    texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texSize, texSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    updateTexture();
+  }
+
+  function updateTexture() {
+    const wrapMode = document.getElementById("wrapMode").value;
+    const filterMode = document.getElementById("filterMode").value;
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Set wrap mode
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl[wrapMode]);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl[wrapMode]);
+
+    // Set filter mode
+    if (filterMode.includes("MIPMAP")) {
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl[filterMode]);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    render();
+  }
+
+  function render() {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const projectionMatrix = perspective(90, canvas.width / canvas.height, 0.1, 100);
+    const modelViewMatrix = mat4();
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ProjectionMatrix"), false, flatten(projectionMatrix));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_ModelViewMatrix"), false, flatten(modelViewMatrix));
+
+    gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+  }
+</script>
+
+<!-- Vertex Shader -->
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec3 a_Position;
+  attribute vec2 a_TexCoord;
+  varying vec2 v_TexCoord;
+  uniform mat4 u_ModelViewMatrix, u_ProjectionMatrix;
+
+  void main() {
+      gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * vec4(a_Position, 1.0);
+      v_TexCoord = a_TexCoord;
+  }
+</script>
+
+<!-- Fragment Shader -->
+<script id="fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  varying vec2 v_TexCoord;
+  uniform sampler2D u_Texture;
+
+  void main() {
+      gl_FragColor = texture2D(u_Texture, v_TexCoord);
+  }
+</script>
+</body>
+</html>

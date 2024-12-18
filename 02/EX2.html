@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Interactive Drawing</title>
+</head>
+<body>
+<div style="text-align: center;">
+  <canvas id="gl-canvas" width="512" height="512">
+    Please use a browser that supports HTML5 canvas.
+  </canvas>
+  <br>
+  <button id="pointModeBtn">Point Mode</button>
+  <button id="triangleModeBtn">Triangle Mode</button>
+  <button id="circleModeBtn">Circle Mode</button>
+  <button id="clearBtn">Clear Canvas</button>
+  <br>
+  <label>Draw Color:</label>
+  <select id="drawColorMenu">
+    <option value="0">Black</option>
+    <option value="1">Red</option>
+    <option value="2">Yellow</option>
+    <option value="3">Green</option>
+    <option value="4">Blue</option>
+    <option value="5">Magenta</option>
+    <option value="6">Cyan</option>
+    <option value="7">White</option>
+  </select>
+  <label>Clear Color:</label>
+  <select id="clearColorMenu">
+    <option value="0">Black</option>
+    <option value="1">Red</option>
+    <option value="2">Yellow</option>
+    <option value="3">Green</option>
+    <option value="4">Blue</option>
+    <option value="5">Magenta</option>
+    <option value="6">Cyan</option>
+    <option value="7" selected>White</option>
+  </select>
+</div>
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec4 vPosition;
+  attribute vec4 vColor;
+  varying vec4 fColor;
+
+  void main() {
+      gl_Position = vPosition;
+      fColor = vColor;
+  }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+  precision mediump float;
+  varying vec4 fColor;
+
+  void main() {
+      gl_FragColor = fColor;
+  }
+</script>
+
+<script type="text/javascript" src="webgl-utils.js"></script>
+<script type="text/javascript" src="initShaders.js"></script>
+<script type="text/javascript" src="MV.js"></script>
+
+<script type="text/javascript">
+  // Initialize WebGL
+  const canvas = document.getElementById("gl-canvas");
+  const gl = canvas.getContext("webgl");
+  if (!gl) { alert("WebGL isn't available"); }
+
+  // Configure WebGL
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  // Load shaders and initialize attribute buffers
+  const program = initShaders(gl, "vertex-shader", "fragment-shader");
+  gl.useProgram(program);
+
+  // Colors array
+  const colors = [
+    vec4(0.0, 0.0, 0.0, 1.0),  // black
+    vec4(1.0, 0.0, 0.0, 1.0),  // red
+    vec4(1.0, 1.0, 0.0, 1.0),  // yellow
+    vec4(0.0, 1.0, 0.0, 1.0),  // green
+    vec4(0.0, 0.0, 1.0, 1.0),  // blue
+    vec4(1.0, 0.0, 1.0, 1.0),  // magenta
+    vec4(0.0, 1.0, 1.0, 1.0),  // cyan
+    vec4(1.0, 1.0, 1.0, 1.0)   // white
+  ];
+
+  // Initialize buffers
+  const MAX_VERTICES = 10000;
+  let vertices = [];
+  let vertexColors = [];
+  let numVertices = 0;
+
+  const vBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, 8 * MAX_VERTICES, gl.STATIC_DRAW);
+
+  const vPosition = gl.getAttribLocation(program, "vPosition");
+  gl.vertexAttribPointer(vPosition, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(vPosition);
+
+  const cBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, 16 * MAX_VERTICES, gl.STATIC_DRAW);
+
+  const vColor = gl.getAttribLocation(program, "vColor");
+  gl.vertexAttribPointer(vColor, 4, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(vColor);
+
+  // Drawing mode and state variables
+  let currentMode = "point";
+  let trianglePoints = [];
+  let triangleColors = [];
+  let circleFirstPoint = null;
+  const POINT_SIZE = 0.05;
+
+  // Function to add a point (as two triangles)
+  function addPoint(point, color) {
+    const halfSize = POINT_SIZE / 2;
+    const pointVertices = [
+      vec2(point[0] - halfSize, point[1] - halfSize),
+      vec2(point[0] + halfSize, point[1] - halfSize),
+      vec2(point[0] - halfSize, point[1] + halfSize),
+      vec2(point[0] - halfSize, point[1] + halfSize),
+      vec2(point[0] + halfSize, point[1] - halfSize),
+      vec2(point[0] + halfSize, point[1] + halfSize)
+    ];
+
+    vertices.push(...pointVertices);
+    for (let i = 0; i < 6; i++) {
+      vertexColors.push(color);
+    }
+    numVertices += 6;
+  }
+
+  // Function to add a circle
+  function addCircle(center, radius, color) {
+    const segments = 32;
+    const angleStep = 2 * Math.PI / segments;
+
+    for (let i = 0; i < segments; i++) {
+      const angle1 = i * angleStep;
+      const angle2 = (i + 1) * angleStep;
+
+      const p1 = vec2(
+              center[0] + radius * Math.cos(angle1),
+              center[1] + radius * Math.sin(angle1)
+      );
+      const p2 = vec2(
+              center[0] + radius * Math.cos(angle2),
+              center[1] + radius * Math.sin(angle2)
+      );
+
+      vertices.push(center, p1, p2);
+      vertexColors.push(color, color, color);
+      numVertices += 3;
+    }
+  }
+
+  // Function to render
+  function render() {
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, flatten(vertices));
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, cBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, flatten(vertexColors));
+
+    gl.drawArrays(gl.TRIANGLES, 0, numVertices);
+  }
+
+  // Event handlers
+  canvas.addEventListener("click", function(event) {
+    const bbox = event.target.getBoundingClientRect();
+    const mousePos = vec2(
+            2 * (event.clientX - bbox.left) / canvas.width - 1,
+            2 * (canvas.height - (event.clientY - bbox.top) - 1) / canvas.height - 1
+    );
+    const currentColor = colors[document.getElementById("drawColorMenu").value];
+
+    if (currentMode === "point") {
+      addPoint(mousePos, currentColor);
+    }
+    else if (currentMode === "triangle") {
+      trianglePoints.push(mousePos);
+      triangleColors.push(currentColor);
+
+      if (trianglePoints.length === 3) {
+        vertices.push(...trianglePoints);
+        vertexColors.push(...triangleColors);
+        numVertices += 3;
+
+        trianglePoints = [];
+        triangleColors = [];
+      }
+    }
+    else if (currentMode === "circle") {
+      if (!circleFirstPoint) {
+        circleFirstPoint = mousePos;
+        addPoint(mousePos, currentColor);
+      } else {
+        const dx = mousePos[0] - circleFirstPoint[0];
+        const dy = mousePos[1] - circleFirstPoint[1];
+        const radius = Math.sqrt(dx*dx + dy*dy);
+
+        // Remove the first point
+        vertices.splice(-6);
+        vertexColors.splice(-6);
+        numVertices -= 6;
+
+        addCircle(circleFirstPoint, radius, currentColor);
+        circleFirstPoint = null;
+      }
+    }
+
+    render();
+  });
+
+  // Button handlers
+  document.getElementById("pointModeBtn").addEventListener("click", function() {
+    currentMode = "point";
+    circleFirstPoint = null;
+    trianglePoints = [];
+    triangleColors = [];
+  });
+
+  document.getElementById("triangleModeBtn").addEventListener("click", function() {
+    currentMode = "triangle";
+    circleFirstPoint = null;
+    trianglePoints = [];
+    triangleColors = [];
+  });
+
+  document.getElementById("circleModeBtn").addEventListener("click", function() {
+    currentMode = "circle";
+    circleFirstPoint = null;
+    trianglePoints = [];
+    triangleColors = [];
+  });
+
+  document.getElementById("clearBtn").addEventListener("click", function() {
+    const clearColor = colors[document.getElementById("clearColorMenu").value];
+    gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+    vertices = [];
+    vertexColors = [];
+    numVertices = 0;
+    circleFirstPoint = null;
+    trianglePoints = [];
+    triangleColors = [];
+    render();
+  });
+
+  // Initial clear and render
+  gl.clearColor(1.0, 1.0, 1.0, 1.0);
+  render();
+</script>
+</body>
+</html>
